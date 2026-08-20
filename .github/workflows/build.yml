@@ -1,0 +1,65 @@
+---
+name: Build and Push CI Base Image
+
+on:
+  push:
+    branches:
+    - master
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Generate CalVer tag
+      id: calver
+      run: |
+        YEAR_MONTH=$(date -u +%Y.%m)
+        LATEST_PATCH=$(gh api repos/${{ github.repository }}/tags --jq "[.[].name | select(startswith(\"v${YEAR_MONTH}.\"))] | map(ltrimstr(\"v${YEAR_MONTH}.\") | tonumber) | max // -1")
+        TAG="v${YEAR_MONTH}.$((LATEST_PATCH + 1))"
+        echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create git tag
+      run: |
+        git tag "${{ steps.calver.outputs.tag }}"
+        git push origin "${{ steps.calver.outputs.tag }}"
+
+    - name: Extract metadata (tags, labels)
+      id: meta
+      uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=raw,value=latest
+          type=raw,value=${{ steps.calver.outputs.tag }}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+    - name: Build and push image
+      uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+      with:
+        context: .
+        file: ./Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
