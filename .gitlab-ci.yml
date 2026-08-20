@@ -1,4 +1,24 @@
 ---
+stages: [build]
+
 workflow:
   rules:
-  - when: never
+  - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+build:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  script:
+  - |
+    YEAR_MONTH=$(date -u +%Y.%m)
+    TAG="v${YEAR_MONTH}.${CI_PIPELINE_IID}"
+    echo "Building $CI_REGISTRY_IMAGE:$TAG"
+    mkdir -p /kaniko/.docker
+    echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(echo -n "${CI_REGISTRY_USER}:${CI_REGISTRY_PASSWORD}" | base64)\"}}}" > /kaniko/.docker/config.json
+    /kaniko/executor \
+      --context "$CI_PROJECT_DIR" \
+      --dockerfile "$CI_PROJECT_DIR/Dockerfile" \
+      --destination "$CI_REGISTRY_IMAGE:$TAG" \
+      --destination "$CI_REGISTRY_IMAGE:latest"
